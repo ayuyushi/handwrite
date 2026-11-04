@@ -4,7 +4,9 @@ import tempfile
 import unittest
 import subprocess
 import filecmp
+from unittest import mock
 
+from handwrite.cli import converters
 from handwrite.sheettopng import ALL_CHARS
 
 
@@ -16,6 +18,29 @@ class TestCLI(unittest.TestCase):
 
     def tearDown(self):
         shutil.rmtree(self.temp_dir)
+
+    def test_converters_creates_output_directory(self):
+        output_directory = os.path.join(self.temp_dir, "new-output")
+
+        with mock.patch("handwrite.cli.run") as run:
+            converters("sheet.png", output_directory)
+
+        self.assertTrue(os.path.isdir(output_directory))
+        run.assert_called_once()
+
+    def test_converters_removes_temporary_directory_on_failure(self):
+        characters_dir = tempfile.mkdtemp(dir=self.temp_dir)
+
+        with (
+            mock.patch("handwrite.cli.tempfile.mkdtemp", return_value=characters_dir),
+            mock.patch(
+                "handwrite.cli.run", side_effect=RuntimeError("conversion failed")
+            ),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "conversion failed"):
+                converters("sheet.png", os.path.join(self.temp_dir, "output"))
+
+        self.assertFalse(os.path.exists(characters_dir))
 
     def test_single_input(self):
         # Check working with excellent input and no optional parameters

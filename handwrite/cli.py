@@ -14,13 +14,9 @@ def run(sheet, output_directory, characters_dir, config, metadata):
     SVGtoTTF().convert(characters_dir, output_directory, config, metadata)
 
 
+# this is the fourth issue
+# "4. Temp directory leaked on failure"
 def converters(sheet, output_directory, directory=None, config=None, metadata=None):
-    if not directory:
-        directory = tempfile.mkdtemp()
-        isTempdir = True
-    else:
-        isTempdir = False
-
     if config is None:
         config = os.path.join(
             os.path.dirname(os.path.realpath(__file__)), "default.json"
@@ -30,11 +26,21 @@ def converters(sheet, output_directory, directory=None, config=None, metadata=No
 
     if os.path.isdir(sheet):
         raise IsADirectoryError("Sheet parameter should not be a directory.")
-    else:
-        run(sheet, output_directory, directory, config, metadata)
 
-    if isTempdir:
-        shutil.rmtree(directory)
+    os.makedirs(output_directory, exist_ok=True)
+
+    is_tempdir = not directory
+    if is_tempdir:
+        directory = tempfile.mkdtemp()
+
+    try:
+        # This line calls the run function to perform the conversion process.
+        # It takes the input sheet, output directory, temporary or specified directory for intermediate files, configuration file, and metadata as arguments.
+        run(sheet, output_directory, directory, config, metadata)
+    finally:
+        if is_tempdir:
+            # This line ensures that the temporary directory is removed after the conversion process, even if an error occurs during the conversion.
+            shutil.rmtree(directory)
 
 
 def main():

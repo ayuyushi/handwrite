@@ -25,20 +25,55 @@ class SVGtoTTF:
         import subprocess
         import platform
 
-        subprocess.run(
-            (
-                ["ffpython"]
-                if platform.system() == "Windows"
-                else ["fontforge", "-script"]
+        # this is the second part of the issue
+        # "2. FontForge and potrace failures are ignored"
+
+        """
+        Original code:
+            subprocess.run(
+                (
+                    ["ffpython"]
+                    if platform.system() == "Windows"
+                    else ["fontforge", "-script"]
+                )
+                + [
+                    os.path.abspath(__file__),
+                    config,
+                    directory,
+                    outdir,
+                    json.dumps(metadata),
+                ]
             )
-            + [
-                os.path.abspath(__file__),
-                config,
-                directory,
-                outdir,
-                json.dumps(metadata),
-            ]
-        )
+        """
+
+        command = (
+            ["ffpython"] if platform.system() == "Windows" else ["fontforge", "-script"]
+        ) + [
+            os.path.abspath(__file__),
+            config,
+            directory,
+            outdir,
+            json.dumps(metadata),
+        ]
+
+        try:
+            # check=True raises CalledProcessError when FontForge exits unsuccessfully
+            # capture_output=True captures stdout and stderr, which can be printed in case of an error
+            # text=True ensures that the output is returned as a string rather than bytes
+            result = subprocess.run(command, check=True, capture_output=True, text=True)
+        except subprocess.CalledProcessError as exc:
+            if exc.stdout:
+                sys.stdout.write(exc.stdout)
+            if exc.stderr:
+                sys.stderr.write(exc.stderr)
+            raise RuntimeError(
+                f"FontForge conversion failed (exit code {exc.returncode})."
+            ) from exc
+        else:
+            if result.stdout:
+                sys.stdout.write(result.stdout)
+            if result.stderr:
+                sys.stderr.write(result.stderr)
 
     def set_properties(self):
         """Set metadata of the font from config."""
@@ -50,9 +85,6 @@ class SVGtoTTF:
         family = self.metadata.get("family", None) or fontname
         style = self.metadata.get("style", None) or props.get("style", "Regular")
 
-        self.font.familyname = fontname
-        self.font.fontname = fontname + "-" + style
-        self.font.fullname = fontname + " " + style
         self.font.encoding = props.get("encoding", "UnicodeFull")
 
         for k, v in props.items():
@@ -61,15 +93,25 @@ class SVGtoTTF:
                     v = tuple(v)
                 setattr(self.font, k, v)
 
-        if self.config.get("sfnt_names", None):
-            self.config["sfnt_names"]["Family"] = family
-            self.config["sfnt_names"]["Fullname"] = family + " " + style
-            self.config["sfnt_names"]["PostScriptName"] = family + "-" + style
-            self.config["sfnt_names"]["SubFamily"] = style
+        # the font’s internal names now use the same family and style as its SFNT names.
+        # For example, with family My Font and style Regular, the family name is My Font, the full name is My Font Regular, and the PostScript name is My Font-Regular.
 
-        self.config["sfnt_names"]["UniqueID"] = family + " " + str(uuid.uuid4())
+        # Set font name properties
+        full_name = family + " " + style
+        postscript_name = family + "-" + style
+        self.font.familyname = family
+        self.font.fullname = full_name
+        self.font.fontname = postscript_name
 
-        for k, v in self.config.get("sfnt_names", {}).items():
+        # Set SFNT name properties
+        sfnt_names = self.config.setdefault("sfnt_names", {})
+        sfnt_names["Family"] = family
+        sfnt_names["Fullname"] = full_name
+        sfnt_names["PostScriptName"] = postscript_name
+        sfnt_names["SubFamily"] = style
+        sfnt_names["UniqueID"] = family + " " + str(uuid.uuid4())
+
+        for k, v in sfnt_names.items():
             self.font.appendSFNTName(str(lang), str(k), str(v))
 
     def add_glyphs(self, directory):
